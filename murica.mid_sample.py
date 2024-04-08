@@ -14,8 +14,8 @@ dis2 = const(622)
 f2 = const(698)
 
 def ZahrajTón(buzzer, tón, trvanie, pauza=0):
-    buzzer.init(freq=tón, duty_u16=2**15)
-    sleep(trvanie)
+    buzzer.init(freq = tón * 2, duty_u16 = 32768)
+    sleep(trvanie * 0.75)
     buzzer.duty_u16(0)
     sleep(pauza)
 
