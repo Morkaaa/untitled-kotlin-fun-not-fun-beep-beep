@@ -1,12 +1,13 @@
 import java.io.File
 import javax.sound.midi.MidiSystem
 import javax.sound.midi.ShortMessage
+import kotlin.math.round
 
 fun main() {
     // Název souboru MIDI
     print("Zadejte cestu k souboru MIDI s názvem: ")
     var midiFileName: String = readLine() ?: return
-    if (!midiFileName.contains('.')){
+    if (!midiFileName.contains('.')) {
         midiFileName += ".mid"
     }
     println("Zdrojový soubor: $midiFileName")
@@ -14,8 +15,7 @@ fun main() {
     val midiFile = File(midiFileName)
 
     if (midiFile.exists()) {
-        val tonesWithDuration = mutableListOf<Pair<Int, Double>>() // Tóny s délkou
-
+        val tonesWithDurationAndPause = mutableListOf<Triple<Int, Double, Double>>() // Tóny s délkou a pauzou
         // Načti obsah souboru MIDI
         val sequence = MidiSystem.getSequence(midiFile)
 
@@ -35,7 +35,6 @@ fun main() {
                 when (message) {
                     is ShortMessage -> {
                         val note = message.data1
-                        val tick = event.tick.toDouble() / sequence.resolution.toDouble()
                         // Pokud je událost zapnutí tónu
                         if (message.command == ShortMessage.NOTE_ON) {
                             activeNotes[note] = event.tick
@@ -44,7 +43,13 @@ fun main() {
                         else if (message.command == ShortMessage.NOTE_OFF) {
                             val startTime = activeNotes.remove(note) ?: continue
                             val duration = (event.tick - startTime).toDouble() / sequence.resolution.toDouble()
-                            tonesWithDuration.add(Pair(note, duration))
+                            val pause = if (j + 1 < track.size()) {
+                                val nextEvent = track[j + 1]
+                                (nextEvent.tick - event.tick).toDouble() / sequence.resolution.toDouble()
+                            } else {
+                                0.0
+                            }
+                            tonesWithDurationAndPause.add(Triple(note, duration, pause))
                         }
                     }
                 }
@@ -52,15 +57,15 @@ fun main() {
         }
 
         // Vytvoř Python skript pro tyto tóny
-        createPythonScript(tonesWithDuration, midiFileName)
+        createPythonScript(tonesWithDurationAndPause, midiFileName)
 
-        println("Python skript byl vytvořen.")
+        println("Python skript byl vytvorený.")
     } else {
-        println("Soubor $midiFileName neexistuje.")
+        println("Súbor $midiFileName neexistuje.")
     }
 }
 
-fun createPythonScript(tonesWithDuration: List<Pair<Int, Double>>, filename: String) {
+fun createPythonScript(tonesWithDurationAndPause: List<Triple<Int, Double, Double>>, filename: String) {
     // Mapa MIDI hodnot na konstanty v buzzer_sample.py
     val midiToConstant = mapOf(
         128 to "gis6",
@@ -327,13 +332,13 @@ fun createPythonScript(tonesWithDuration: List<Pair<Int, Double>>, filename: Str
     val uniqueTones = mutableSetOf<Int>()
 
     // Add all tones to the set
-    for ((midiValue, _) in tonesWithDuration) {
+    for ((midiValue, _) in tonesWithDurationAndPause) {
         uniqueTones.add(midiValue)
     }
     // Vytvoř obsah pro soubor
     val content = buildString {
         appendLine("from machine import Pin, PWM")
-        appendLine("from time import sleep")
+        appendLine("from time import sleep_ms")
         appendLine()
 
 
@@ -344,17 +349,23 @@ fun createPythonScript(tonesWithDuration: List<Pair<Int, Double>>, filename: Str
         appendLine()
         appendLine("def ZahrajTón(buzzer, tón, trvanie, pauza=0):")
         appendLine("    buzzer.init(freq=tón, duty_u16=2**15)")
-        appendLine("    sleep(trvanie)")
+        appendLine("    sleep_ms(trvanie)")
         appendLine("    buzzer.duty_u16(0)")
-        appendLine("    sleep(pauza)")
+        appendLine("    sleep_ms(pauza)")
         appendLine()
 
         appendLine("buzzer = PWM(Pin(2))")
         appendLine("buzzer.deinit()")
         appendLine("sleep(1)")
 
-        for ((midiValue, duration) in tonesWithDuration) {
-            appendLine("ZahrajTón(buzzer, ${midiToConstant[midiValue]}, $duration)")
+        for ((midiValue, duration, pause) in tonesWithDurationAndPause) {
+            val roundedDuration = round(duration * 1000).toInt()
+            val roundedPause = round(pause * 1000).toInt()
+            if (roundedPause > 0) {
+                appendLine("ZahrajTón(buzzer, ${midiToConstant[midiValue]}, $roundedDuration, $roundedPause)")
+            } else {
+                appendLine("ZahrajTón(buzzer, ${midiToConstant[midiValue]}, $roundedDuration)")
+            }
         }
     }
 
