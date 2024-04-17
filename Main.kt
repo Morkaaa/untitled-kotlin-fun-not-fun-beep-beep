@@ -14,8 +14,7 @@ fun main() {
     val midiFile = File(midiFileName)
 
     if (midiFile.exists()) {
-        val tonesWithDuration = mutableListOf<Pair<Int, Double>>() // Tóny s délkou
-
+        val tonesWithDurationAndPause = mutableListOf<Triple<Int, Double, Double>>() // Tóny s délkou a pauzou
         // Načti obsah souboru MIDI
         val sequence = MidiSystem.getSequence(midiFile)
 
@@ -35,7 +34,6 @@ fun main() {
                 when (message) {
                     is ShortMessage -> {
                         val note = message.data1
-                        val tick = event.tick.toDouble() / sequence.resolution.toDouble()
                         // Pokud je událost zapnutí tónu
                         if (message.command == ShortMessage.NOTE_ON) {
                             activeNotes[note] = event.tick
@@ -44,7 +42,13 @@ fun main() {
                         else if (message.command == ShortMessage.NOTE_OFF) {
                             val startTime = activeNotes.remove(note) ?: continue
                             val duration = (event.tick - startTime).toDouble() / sequence.resolution.toDouble()
-                            tonesWithDuration.add(Pair(note, duration))
+                            val pause = if (j + 1 < track.size()) {
+                                val nextEvent = track[j + 1]
+                                (nextEvent.tick - event.tick).toDouble() / sequence.resolution.toDouble()
+                            } else {
+                                0.0
+                            }
+                            tonesWithDurationAndPause.add(Triple(note, duration, pause))
                         }
                     }
                 }
@@ -52,15 +56,15 @@ fun main() {
         }
 
         // Vytvoř Python skript pro tyto tóny
-        createPythonScript(tonesWithDuration, midiFileName)
+        createPythonScript(tonesWithDurationAndPause, midiFileName)
 
-        println("Python skript byl vytvořen.")
+        println("Python skript byl vytvorený.")
     } else {
-        println("Soubor $midiFileName neexistuje.")
+        println("Súbor $midiFileName neexistuje.")
     }
 }
 
-fun createPythonScript(tonesWithDuration: List<Pair<Int, Double>>, filename: String) {
+fun createPythonScript(tonesWithDurationAndPause: List<Triple<Int, Double, Double>>, filename: String) {
     // Mapa MIDI hodnot na konstanty v buzzer_sample.py
     val midiToConstant = mapOf(
         128 to "gis6",
@@ -353,8 +357,14 @@ fun createPythonScript(tonesWithDuration: List<Pair<Int, Double>>, filename: Str
         appendLine("buzzer.deinit()")
         appendLine("sleep(1)")
 
-        for ((midiValue, duration) in tonesWithDuration) {
-            appendLine("ZahrajTón(buzzer, ${midiToConstant[midiValue]}, $duration)")
+        for ((midiValue, duration, pause) in tonesWithDurationAndPause) {
+            if (pause > 0) {
+                appendLine("ZahrajTón(buzzer, ${midiToConstant[midiValue]}, $duration, $pause)")
+                appendLine(pause)
+            } else {
+                appendLine("ZahrajTón(buzzer, ${midiToConstant[midiValue]}, $duration)")
+                appendLine(pause)
+            }
         }
     }
 
