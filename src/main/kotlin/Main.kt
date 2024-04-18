@@ -356,7 +356,7 @@ fun createPythonScript(tonesWithDurationAndPause: List<Triple<Int, Double, Doubl
 
         appendLine("buzzer = PWM(Pin(2))")
         appendLine("buzzer.deinit()")
-        appendLine("sleep(1)")
+        appendLine("sleep_ms(1000)")
 
         for ((midiValue, duration, pause) in tonesWithDurationAndPause) {
             val roundedDuration = round(duration * 1000).toInt()
