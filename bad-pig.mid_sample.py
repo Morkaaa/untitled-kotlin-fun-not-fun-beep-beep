@@ -30,10 +30,9 @@ h = const(247)
 
 def ZahrajTón(buzzer, tón, trvanie, pauza=0):
     buzzer.init(freq=tón, duty_u16=2**15)
-    sleep_ms(trvanie)
+    sleep_ms(trvanie // 2)
     buzzer.duty_u16(0)
-    print(pauza)
-    sleep_ms(pauza)
+    sleep_ms(pauza // 2)
 
 buzzer = PWM(Pin(2))
 buzzer.deinit()
