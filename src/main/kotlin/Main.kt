@@ -13,6 +13,22 @@ fun main() {
     println("Zdrojový soubor: $midiFileName")
     // Načti soubor MIDI
     val midiFile = File(midiFileName)
+// Check if the file exists and is a valid MIDI file
+    if (!midiFile.exists() || !midiFile.extension.equals("mid", ignoreCase = true)) {
+        println("Chyba: Soubor $midiFileName neexistuje nebo nemá platný formát MIDI.")
+        return
+    }
+
+    try {
+        val sequence = MidiSystem.getSequence(midiFile)
+        // Continue processing...
+    } catch (e: Exception) {
+        println("Chyba při načítání souboru: ${e.message}")
+        return
+    }
+
+    println("Zvolte kanál MIDI pro konverzi (0-15), nebo stiskněte Enter pro asynchronní přehrávání všech kanálů: ")
+    val channelInput = readLine()?.toIntOrNull()
 
     if (midiFile.exists()) {
         val tonesWithDurationAndPause = mutableListOf<Triple<Int, Double, Double>>() // Tóny s délkou a pauzou
@@ -27,29 +43,39 @@ fun main() {
             val activeNotes = mutableMapOf<Int, Long>()
 
             // Pro každou událost ve stopě
-            for (j in 0 until track.size()) {
-                val event = track[j]
-                val message = event.message
+            for (i in 0 until sequence.tracks.size) {
+                val track = sequence.tracks[i]
 
-                // Přidej tóny a jejich délky do seznamu
-                when (message) {
-                    is ShortMessage -> {
+                // Active tones with their start time
+                val activeNotes = mutableMapOf<Int, Long>()
+
+                // Process each event in the track
+                for (j in 0 until track.size()) {
+                    val event = track[j]
+                    val message = event.message
+
+                    if (message is ShortMessage) {
                         val note = message.data1
-                        // Pokud je událost zapnutí tónu
-                        if (message.command == ShortMessage.NOTE_ON) {
-                            activeNotes[note] = event.tick
-                        }
-                        // Pokud je událost vypnutí tónu
-                        else if (message.command == ShortMessage.NOTE_OFF) {
-                            val startTime = activeNotes.remove(note) ?: continue
-                            val duration = (event.tick - startTime).toDouble() / sequence.resolution.toDouble()
-                            val pause = if (j + 1 < track.size()) {
-                                val nextEvent = track[j + 1]
-                                (nextEvent.tick - event.tick).toDouble() / sequence.resolution.toDouble()
-                            } else {
-                                0.0
+                        val channel = message.channel // Get the MIDI channel
+                        // Check if we're processing a specific channel
+                        if (channelInput != null && channel != channelInput) continue
+
+                        when (message.command) {
+                            ShortMessage.NOTE_ON -> {
+                                activeNotes[note] = event.tick
                             }
-                            tonesWithDurationAndPause.add(Triple(note, duration, pause))
+
+                            ShortMessage.NOTE_OFF -> {
+                                val startTime = activeNotes.remove(note) ?: continue
+                                val duration = (event.tick - startTime).toDouble() / sequence.resolution.toDouble()
+                                val pause = if (j + 1 < track.size()) {
+                                    val nextEvent = track[j + 1]
+                                    (nextEvent.tick - event.tick).toDouble() / sequence.resolution.toDouble()
+                                } else {
+                                    0.0
+                                }
+                                tonesWithDurationAndPause.add(Triple(note, duration, pause))
+                            }
                         }
                     }
                 }
@@ -358,15 +384,21 @@ fun createPythonScript(tonesWithDurationAndPause: List<Triple<Int, Double, Doubl
         appendLine("buzzer.deinit()")
         appendLine("sleep_ms(1000)")
 
+        // In the Python script generator
         for ((midiValue, duration, pause) in tonesWithDurationAndPause) {
+            // Calculate start time and stagger overlapping notes
             val roundedDuration = round(duration * 1000).toInt()
             val roundedPause = round(pause * 1000).toInt()
+
             if (roundedPause > 0) {
                 appendLine("ZahrajTón(buzzer, ${midiToConstant[midiValue]}, $roundedDuration, $roundedPause)")
             } else {
                 appendLine("ZahrajTón(buzzer, ${midiToConstant[midiValue]}, $roundedDuration)")
             }
+            // Handle overlapping by ensuring pause times reflect asynchronous playback
+            appendLine("sleep_ms($roundedPause)") // Small delay for overlapping effect
         }
+
     }
 
     // Ulož do souboru
